@@ -90,8 +90,6 @@ def build_rbf(classical_seed, expected_seeds=100):
             seed_operational_pass_rate=float(np.mean((ce<=.05)&(w<1)&(isv<1))),
             wilcoxon_IS_less_than_1_p=_wilcoxon(isv,"less"),
             wilcoxon_IS_greater_than_1_p=_wilcoxon(isv,"greater"),
-            sign_test_IS_less_than_1_p=_sign_test(isv,"less"),
-            sign_test_IS_greater_than_1_p=_sign_test(isv,"greater"),
         ))
     out=pd.DataFrame(rows)
     out=out.rename(columns={"seed_coverage_error_le_0_05_rate":"seed_coverage_error_le_0.05_rate"})
@@ -127,9 +125,48 @@ def build_clipiqa(clip_seed, expected_seeds=20):
             "Seed IS<1 rate":float(np.mean(isv<1)),
             "Seed operational PASS rate":float(np.mean((ce<=.05)&(w<1)&(isv<1))),
             "Wilcoxon p (IS<1)":_wilcoxon(isv,"less"),
-            "Sign-test p (IS<1)":_sign_test(isv,"less"),
             "Direction-level informative":bool((med_ce<=.05)&(med_w<1)&(med_is<1)),
         })
+    return pd.DataFrame(rows)
+
+
+def build_statistical_robustness(classical_seed, clip_seed, expected_classical=100, expected_clip=20):
+    rows=[]
+    cdf=pd.read_csv(classical_seed)
+    cdf=cdf[(cdf.predictor=="rbf_svr")&(cdf.method=="q40")].copy()
+    for direction in ORDER:
+        g=cdf[cdf.direction==direction]
+        _require_seed_count(g,expected_classical,f"RBF-SVR {direction}")
+        isv=g.interval_score_mean.to_numpy(float)
+        rows.append(dict(
+            analysis="RBF-SVR q40",
+            direction=direction,
+            transfer=TRANSFER[direction],
+            n_seeds=int(g.seed.nunique()),
+            seed_IS_lt_1_rate=float(np.mean(isv<1)),
+            wilcoxon_less_p=_wilcoxon(isv,"less"),
+            wilcoxon_greater_p=_wilcoxon(isv,"greater"),
+            exact_sign_less_p=_sign_test(isv,"less"),
+            exact_sign_greater_p=_sign_test(isv,"greater"),
+        ))
+    xdf=pd.read_csv(clip_seed)
+    if "method" in xdf.columns:
+        xdf=xdf[xdf.method=="clip_q40"].copy()
+    for direction in ORDER:
+        g=xdf[xdf.direction==direction]
+        _require_seed_count(g,expected_clip,f"CLIP-IQA {direction}")
+        isv=g.interval_score_mean.to_numpy(float)
+        rows.append(dict(
+            analysis="CLIP-IQA q40 sensitivity",
+            direction=direction,
+            transfer=TRANSFER[direction],
+            n_seeds=int(g.seed.nunique()),
+            seed_IS_lt_1_rate=float(np.mean(isv<1)),
+            wilcoxon_less_p=_wilcoxon(isv,"less"),
+            wilcoxon_greater_p=_wilcoxon(isv,"greater"),
+            exact_sign_less_p=_sign_test(isv,"less"),
+            exact_sign_greater_p=_sign_test(isv,"greater"),
+        ))
     return pd.DataFrame(rows)
 
 
@@ -147,13 +184,20 @@ def main():
 
     rbf=build_rbf(args.classical_seed,args.expect_classical_seeds)
     clip=build_clipiqa(args.clip_seed,args.expect_clip_seeds)
+    robustness=build_statistical_robustness(
+        args.classical_seed,args.clip_seed,
+        args.expect_classical_seeds,args.expect_clip_seeds
+    )
 
     rbf_path=args.outdir/"rbf_svr_100seed_stability.csv"
     clip_path=args.outdir/"clipiqa_20seed_summary.csv"
+    robust_path=args.outdir/"interval_score_robustness_tests.csv"
     rbf.to_csv(rbf_path,index=False)
     clip.to_csv(clip_path,index=False)
+    robustness.to_csv(robust_path,index=False)
     print("[DONE]",rbf_path)
     print("[DONE]",clip_path)
+    print("[DONE]",robust_path)
 
 
 if __name__=="__main__":

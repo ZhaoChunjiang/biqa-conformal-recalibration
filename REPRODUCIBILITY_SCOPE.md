@@ -16,7 +16,9 @@ The following analysis logic is executable from the required caches:
 - MOS- and prediction-quintile conditional-coverage diagnostics;
 - proper interval score and the `[0,1]` uninformative reference;
 - base CLIP-IQA score extraction and source-only nonnegative affine head;
-- seed-level summaries and Wilcoxon tests.
+- seed-level summaries, Wilcoxon tests, and exact sign/binomial robustness tests;
+- deterministic manuscript-table construction from seed-level outputs;
+- the 474-image source-size-matched intervention audit.
 
 ## External benchmark data
 
@@ -38,7 +40,11 @@ The exact historical `pyiqa`, `torch`, and `torchvision` package versions were n
 
 ## Result tables
 
-The `results/` directory contains compact summaries supporting manuscript verification. It intentionally omits raw benchmark images and large per-seed/intermediate files.
+The `results/` directory contains compact summaries supporting manuscript verification. They are not hand-edited terminal outputs: `make_results_tables.py` deterministically converts the seed-level outputs from the formal runs into the manuscript-facing schemas. The repository intentionally omits raw benchmark images and large per-seed/intermediate files.
+
+## Source-size audit
+
+The source-size-matched intervention is implemented in `run_source_size_audit.py`. CID2013-source B/E are anchors identical by construction. The causal interpretation remains deliberately limited: matching source sample count controls source N, not acquisition content, device mix, score-distribution shape, or other database properties.
 
 ## Randomness
 

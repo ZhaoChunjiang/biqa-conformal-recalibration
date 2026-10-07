@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: "If you use this repository, please cite the accompanying manuscript."
+title: "Cross-database BIQA conformal recalibration: reproducibility code"
+type: software
+authors:
+  - family-names: Zhao
+    given-names: Chunjiang
+repository-code: "https://github.com/ZhaoChunjiang/biqa-conformal-recalibration"
+version: "1.0"
+date-released: 2026-10-07

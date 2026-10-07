@@ -25,7 +25,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import scipy
-from scipy.stats import spearmanr, pearsonr, kendalltau, wilcoxon
+from scipy.stats import spearmanr, pearsonr, kendalltau, wilcoxon, binomtest
 import sklearn
 from sklearn.ensemble import ExtraTreesRegressor
 from sklearn.linear_model import LinearRegression
@@ -70,6 +70,38 @@ def target_perm(n, seed):
     return np.random.default_rng(seed+202604).permutation(n)
 
 
+def prepare_formal_outdir(outdir, args, clip_enabled):
+    outdir=Path(outdir)
+    outdir.mkdir(parents=True,exist_ok=True)
+    cfg={
+        "mode":"formal",
+        "seeds":int(args.seeds),
+        "alpha":ALPHA,
+        "koniq_csv":str(args.koniq_csv),
+        "cid_csv":str(args.cid_csv),
+        "spaq_csv":str(args.spaq_csv),
+        "clip_enabled":bool(clip_enabled),
+        "clip_koniq":None if args.clip_koniq is None else str(args.clip_koniq),
+        "clip_cid":None if args.clip_cid is None else str(args.clip_cid),
+        "clip_spaq":None if args.clip_spaq is None else str(args.clip_spaq),
+    }
+    cfg_path=outdir/"run_config.json"
+    existing=[p for p in outdir.iterdir() if p.name!="run_config.json"]
+    if cfg_path.exists():
+        old=json.loads(cfg_path.read_text(encoding="utf-8"))
+        if old!=cfg:
+            raise RuntimeError(
+                f"Output directory {outdir} already belongs to a different run configuration. "
+                "Use a fresh output directory to avoid mixing 100-seed and 20-seed evidence."
+            )
+    elif existing:
+        raise RuntimeError(
+            f"Output directory {outdir} is non-empty but has no run_config.json. "
+            "Use a fresh output directory to prevent accidental result mixing."
+        )
+    cfg_path.write_text(json.dumps(cfg,indent=2),encoding="utf-8")
+
+
 def finite_q(abs_resid, alpha=ALPHA):
     x=np.asarray(abs_resid,float)
     x=x[np.isfinite(x)]
@@ -83,6 +115,11 @@ def safe_srcc(y,p):
 
 
 def safe_plcc(y,p):
+    y=np.asarray(y,float); p=np.asarray(p,float)
+    m=np.isfinite(y)&np.isfinite(p)
+    y=y[m]; p=p[m]
+    if len(y)<2 or np.ptp(y)<=1e-15 or np.ptp(p)<=1e-15:
+        return np.nan
     return float(pearsonr(y,p).statistic)
 
 
@@ -238,12 +275,32 @@ def summarize_seed_table(df):
             row["seed_IS_lt_1_rate"]=float(np.mean(isv<1))
             row["seed_coverage_error_le_0.05_rate"]=float(np.mean(ce<=.05))
             row["seed_operational_pass_rate"]=float(np.mean((ce<=.05)&(w<1)&(isv<1)))
+            diff=isv-1.0
+            nonzero=diff[np.abs(diff)>1e-15]
             try:
                 row["wilcoxon_IS_less_than_1_p"]=float(
-                    wilcoxon(isv-1,alternative="less",zero_method="wilcox").pvalue
+                    wilcoxon(diff,alternative="less",zero_method="wilcox").pvalue
+                )
+                row["wilcoxon_IS_greater_than_1_p"]=float(
+                    wilcoxon(diff,alternative="greater",zero_method="wilcox").pvalue
                 )
             except Exception:
                 row["wilcoxon_IS_less_than_1_p"]=np.nan
+                row["wilcoxon_IS_greater_than_1_p"]=np.nan
+            if len(nonzero):
+                nneg=int(np.sum(nonzero<0))
+                npos=int(np.sum(nonzero>0))
+                row["sign_test_IS_less_than_1_p"]=float(
+                    binomtest(nneg,n=len(nonzero),p=.5,alternative="greater").pvalue
+                )
+                row["sign_test_IS_greater_than_1_p"]=float(
+                    binomtest(npos,n=len(nonzero),p=.5,alternative="greater").pvalue
+                )
+                row["sign_test_nontie_n"]=int(len(nonzero))
+            else:
+                row["sign_test_IS_less_than_1_p"]=1.0
+                row["sign_test_IS_greater_than_1_p"]=1.0
+                row["sign_test_nontie_n"]=0
         rows.append(row)
     return pd.DataFrame(rows)
 
@@ -342,21 +399,25 @@ def run_classical(data,seeds,outdir):
 
     bdf=pd.DataFrame(budgetrows)
     bdf.to_csv(outdir/"budget_curve_seed.csv",index=False)
-    bsum=bdf.groupby(["predictor","direction","budget"]).agg(
-        coverage_median=("coverage","median"),
-        coverage_error_median=("coverage_error","median"),
-        width_median=("clipped_width_mean","median"),
-        interval_score_median=("interval_score_mean","median"),
-        IS_lt1_seed_rate=("interval_score_mean",lambda x:np.mean(np.asarray(x)<1)),
-        operational_seed_pass_rate=("coverage_error",lambda x:np.nan), # replaced below
-        n_eval=("n_eval","median"),
-    ).reset_index()
-    # explicit operational pass rate
-    ops=[]
-    for keys,g in bdf.groupby(["predictor","direction","budget"]):
-        ops.append((*keys,float(np.mean((g.coverage_error<=.05)&(g.clipped_width_mean<1)&(g.interval_score_mean<1)))))
-    op=pd.DataFrame(ops,columns=["predictor","direction","budget","operational_seed_pass_rate"])
-    bsum=bsum.drop(columns=["operational_seed_pass_rate"]).merge(op,on=["predictor","direction","budget"])
+    bsum_rows=[]
+    for (predictor,direction,budget),g in bdf.groupby(["predictor","direction","budget"]):
+        bsum_rows.append(dict(
+            predictor=predictor,
+            direction=direction,
+            budget=int(budget),
+            coverage_median=float(np.median(g.coverage)),
+            coverage_error_median=float(np.median(g.coverage_error)),
+            width_median=float(np.median(g.clipped_width_mean)),
+            interval_score_median=float(np.median(g.interval_score_mean)),
+            IS_lt1_seed_rate=float(np.mean(g.interval_score_mean.to_numpy(float)<1)),
+            operational_seed_pass_rate=float(np.mean(
+                (g.coverage_error.to_numpy(float)<=.05)&
+                (g.clipped_width_mean.to_numpy(float)<1)&
+                (g.interval_score_mean.to_numpy(float)<1)
+            )),
+            n_eval=int(np.median(g.n_eval)),
+        ))
+    bsum=pd.DataFrame(bsum_rows)
     bsum.to_csv(outdir/"budget_curve_summary.csv",index=False)
 
     # MOS distribution itself does not depend on seed
@@ -492,13 +553,15 @@ def main():
     ap.add_argument("--seeds",type=int,default=DEFAULT_SEEDS)
     ap.add_argument("--outdir",type=Path,default=Path("outputs"))
     args=ap.parse_args()
-    args.outdir.mkdir(parents=True,exist_ok=True)
     if args.mode=="selftest":
+        args.outdir.mkdir(parents=True,exist_ok=True)
         selftest(args.outdir); return
+    clip_paths={"KonIQ-10k":args.clip_koniq,"CID2013":args.clip_cid,"SPAQ":args.clip_spaq}
+    clip_enabled=all(v is not None and v.exists() for v in clip_paths.values())
+    prepare_formal_outdir(args.outdir,args,clip_enabled)
     data=load_feature_data(args.koniq_csv,args.cid_csv,args.spaq_csv)
     run_classical(data,args.seeds,args.outdir)
-    clip_paths={"KonIQ-10k":args.clip_koniq,"CID2013":args.clip_cid,"SPAQ":args.clip_spaq}
-    if all(v is not None and v.exists() for v in clip_paths.values()):
+    if clip_enabled:
         cdata=load_clip_data(clip_paths)
         run_clipiqa(data,cdata,args.seeds,args.outdir)
     else:

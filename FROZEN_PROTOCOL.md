@@ -105,12 +105,19 @@ For RBF-SVR and ExtraTrees, run 10/20/40/80 target labels on a **common evaluati
 
 The original 40-label main result remains primary and is not replaced.
 
-## 10. Source-size audit wording
+## 10. Source-size-matched intervention audit
 
-CID-source B/E rows are explicitly marked:
-**identical by construction; anchor only; not independent replication**.
+The source-size audit is implemented in `run_source_size_audit.py`.
 
-Inference about source-size intervention is based on the four directions whose large source was actually downsampled.
+- Every source domain is matched to n=474 per seed.
+- CID2013 uses all 474 images and therefore serves as an **identical-by-construction anchor** for B/E.
+- KonIQ-10k uses sampling without replacement with RNG offset 61001.
+- SPAQ uses sampling without replacement with RNG offset 62003.
+- Each 474-image source pool is split into 284 train / 95 calibration / 95 source-test samples.
+- Targets remain full and use the same target permutation offset 202604.
+- The primary target recalibration budget remains q40.
+- Inference about source-size intervention is based on A/C/D/F, the four directions whose large source is actually downsampled.
+- The optional `--compare-full` mode reruns the full-source counterparts and writes paired comparisons.
 
 ## 11. Frozen after formal robustness-audit results
 

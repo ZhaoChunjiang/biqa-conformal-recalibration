@@ -1,13 +1,13 @@
-# Classical formal-run versions are recorded in environment.json.
-# Exact historical CLIP-IQA package versions were not captured; see
-# REPRODUCIBILITY_SCOPE.md. The extractor now records them on rerun.
+# Exact classical formal-run versions are recorded in environment.json.
+# The CLIP-IQA extraction environment was not historically pinned; the bounds
+# below are current rerun-compatibility floors, not claims about the old run.
 numpy>=2.1,<3
 pandas>=2.2,<3
 scipy>=1.16,<2
 scikit-learn>=1.6,<2
 matplotlib>=3.7
 tqdm>=4.66
-pyiqa
-torch
-torchvision
-pillow
+pyiqa>=0.1.16,<0.2
+torch>=2.0
+torchvision>=0.15
+pillow>=9.1

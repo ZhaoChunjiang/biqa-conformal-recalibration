@@ -24,7 +24,7 @@ It does **not** redistribute KonIQ-10k, CID2013, or SPAQ images.
 - Target permutation for seed `s`: `np.random.default_rng(s + 202604)`.
 - Nominal coverage: 0.90 (`alpha = 0.10`).
 
-The 100-seed and 20-seed analyses should be run into separate output directories.
+The 100-seed and 20-seed analyses must be run into separate output directories. Formal runs write a `run_config.json`; the script refuses to reuse a non-empty directory with a different configuration.
 
 ## Core files
 
@@ -33,6 +33,9 @@ The 100-seed and 20-seed analyses should be run into separate output directories
 - `FROZEN_PROTOCOL.md` — protocol frozen before the formal robustness results were inspected.
 - `SEEDS.md` — random-seed and target-permutation rules.
 - `test_interval_score.py` — interval-score, clipping, and q40-rank unit tests.
+- `make_results_tables.py` — deterministic conversion from seed-level outputs to manuscript-facing result tables.
+- `run_source_size_audit.py` — 474-image source-size-matched intervention audit.
+- `STATISTICAL_NOTES.md` — Wilcoxon assumptions and exact sign-test robustness check.
 - `environment.json` / `requirements.txt` — environment record and install requirements.
 - `REPRODUCIBILITY_SCOPE.md` — explicit scope and known provenance limitations.
 - `results/` — representative summary tables only.
@@ -109,7 +112,44 @@ python run_strengthening.py \
   --outdir outputs/diagnostics_20seed
 ```
 
+### Manuscript-facing tables from seed-level outputs
+
+After completing the 100-seed classical run and the separate 20-seed CLIP-IQA run, build the compact manuscript-facing tables with:
+
+```bash
+python make_results_tables.py \
+  --classical-seed outputs/primary_100seed/classical_seed_metrics.csv \
+  --clip-seed outputs/clipiqa_20seed/CLIPIQA_seed_metrics.csv \
+  --outdir outputs/manuscript_tables
+```
+
+This produces:
+
+```text
+rbf_svr_100seed_stability.csv
+clipiqa_20seed_summary.csv
+interval_score_robustness_tests.csv
+```
+
+The first two reproduce the schemas stored in `results/`. The third adds the exact sign/binomial robustness test described in `STATISTICAL_NOTES.md`.
+
+### Source-size-matched intervention audit
+
+The source-size audit reported in the manuscript is implemented separately so that its 474-image source matching cannot be confused with the primary full-source experiment:
+
+```bash
+python run_source_size_audit.py \
+  --koniq-csv data/KonIQ_BRISQUE36_NIQE.csv \
+  --cid-csv data/CID2013_BRISQUE36_NIQE.csv \
+  --spaq-csv data/SPAQ_BRISQUE36_NIQE.csv \
+  --seeds 100 \
+  --outdir outputs/source_size_matched
+```
+
+Add `--compare-full` to rerun the full-source counterparts and write paired full-vs-matched comparisons. The CID2013-source B/E rows are anchors identical by construction; inference about source-size intervention is based on A/C/D/F.
+
 ### CLIP-IQA sensitivity analysis
+
 
 First extract one CLIP-IQA cache per database with `extract_clipiqa_scores.py`, then run:
 
@@ -133,6 +173,14 @@ Raw benchmark images are intentionally omitted. The 37-D BRISQUE36+NIQE caches u
 ## PLCC
 
 Reported PLCC is raw PLCC without target-domain nonlinear/logistic fitting. Cross-database point-transfer conclusions emphasize SRCC and KRCC.
+
+## Statistical robustness
+
+The signed-rank test against interval score 1 is retained as an auxiliary magnitude-sensitive statistic. Because the Wilcoxon signed-rank test has a symmetry assumption for nonzero differences, `make_results_tables.py` also reports an exact sign/binomial test that uses only whether each seed is above or below 1. See `STATISTICAL_NOTES.md`.
+
+## Dependency note
+
+The exact historical CLIP-IQA package versions were not recorded. Current rerun-compatibility floors are given in `requirements.txt`; in particular, `pillow>=9.1` is required for `Image.Resampling.BICUBIC`. The CLIP-IQA extraction script records actual package versions on every rerun.
 
 ## Citation
 
